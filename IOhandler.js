@@ -40,14 +40,20 @@ const unzip = async (pathIn, pathOut) => {
  * @return {promise}
  */
 const readDir = async (dir) => {
-  const goodFiles = [];
-  const files = await fs.promises.readdir(dir)
-  files.forEach(file => {
-    if (file.endsWith("png")) {
-      goodFiles.push(file);
+  const results = [];
+  const traverse = async (currentDir) => {
+    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        await traverse(fullPath);
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".png")) {
+        results.push(path.relative(dir, fullPath));
+      }
     }
-  })
-  return goodFiles;
+  };
+  await traverse(dir);
+  return results;
 };
 
 /**
@@ -60,75 +66,70 @@ const readDir = async (dir) => {
  */
 
 const grayScale = (pathIn, pathOut) => {
-	fs.createReadStream(pathIn)
-		.pipe(
-			new PNG({
-				filterType: 4,
-			})
-		)
-		.on('parsed', function () {
-			for (var y = 0; y < this.height; y++) {
-        for (var x = 0; x < this.width; x++) {
-          var idx = (this.width * y + x) << 2;
-
+  return new Promise((resolve, reject) => {
+    const readStream = fs.createReadStream(pathIn).on('error', reject);
+    const png = new PNG({ filterType: 4 }).on('error', reject);
+    const writeStream = fs.createWriteStream(pathOut)
+      .on('error', reject)
+      .on('finish', resolve);
+    readStream.pipe(png).on('parsed', function () {
+      for (let y = 0; y < this.height; y++) {
+        for (let x = 0; x < this.width; x++) {
+          const idx = (this.width * y + x) << 2;
           const gray = Math.round(
-            0.299 * this.data[idx] + 
-            0.587 * this.data[idx + 1] + 
+            0.299 * this.data[idx] +
+            0.587 * this.data[idx + 1] +
             0.114 * this.data[idx + 2]
           );
-
           this.data[idx] = gray;
           this.data[idx + 1] = gray;
           this.data[idx + 2] = gray;
         }
       }
-			this.pack().pipe(fs.createWriteStream(pathOut));
-		});
+      this.pack().on('error', reject).pipe(writeStream);
+    });
+  });
 };
 
 const sepia = (pathIn, pathOut) => {
-  fs.createReadStream(pathIn)
-    .pipe(
-      new PNG({
-        filterType: 4,
-      })
-    )
-    .on("parsed", function () {
+  return new Promise((resolve, reject) => {
+    const readStream = fs.createReadStream(pathIn).on('error', reject);
+    const png = new PNG({ filterType: 4 }).on('error', reject);
+    const writeStream = fs.createWriteStream(pathOut)
+      .on('error', reject)
+      .on('finish', resolve);
+    readStream.pipe(png).on('parsed', function () {
       for (let y = 0; y < this.height; y++) {
         for (let x = 0; x < this.width; x++) {
           const idx = (this.width * y + x) << 2;
-
           const r = this.data[idx];
           const g = this.data[idx + 1];
           const b = this.data[idx + 2];
-
           this.data[idx] = Math.min(255, 0.393 * r + 0.769 * g + 0.189 * b);
           this.data[idx + 1] = Math.min(255, 0.349 * r + 0.686 * g + 0.168 * b);
           this.data[idx + 2] = Math.min(255, 0.272 * r + 0.534 * g + 0.131 * b);
         }
       }
-      this.pack().pipe(fs.createWriteStream(pathOut));
+      this.pack().on('error', reject).pipe(writeStream);
     });
+  });
 };
 
 const dither = (pathIn, pathOut) => {
-  fs.createReadStream(pathIn)
-    .pipe(
-      new PNG({
-        filterType: 4,
-      })
-    )
-    .on("parsed", function () {
+  return new Promise((resolve, reject) => {
+    const readStream = fs.createReadStream(pathIn).on('error', reject);
+    const png = new PNG({ filterType: 4 }).on('error', reject);
+    const writeStream = fs.createWriteStream(pathOut)
+      .on('error', reject)
+      .on('finish', resolve);
+    readStream.pipe(png).on('parsed', function () {
       for (let y = 0; y < this.height; y++) {
         for (let x = 0; x < this.width; x++) {
           const idx = (this.width * y + x) << 2;
-
           const oldPixel = this.data[idx];
           const newPixel = oldPixel < 128 ? 0 : 255;
           const error = oldPixel - newPixel;
-
           this.data[idx] = this.data[idx + 1] = this.data[idx + 2] = newPixel;
-
           if (x + 1 < this.width) this.data[idx + 4] += (error * 7) >> 4;
           if (y + 1 < this.height) {
             if (x > 0) this.data[idx + this.width * 4 - 4] += (error * 3) >> 4;
@@ -138,8 +139,9 @@ const dither = (pathIn, pathOut) => {
           }
         }
       }
-      this.pack().pipe(fs.createWriteStream(pathOut));
+      this.pack().on('error', reject).pipe(writeStream);
     });
+  });
 };
 
 
